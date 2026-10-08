@@ -12,7 +12,24 @@ endif()
 
 option(WEAKLINK_BUILD_TESTS "Build the Catch2 test suite" ON)
 option(WEAKLINK_LIVE_AUDIO  "Build live audio I/O (bundles PortAudio)" ON)
-option(WEAKLINK_STATIC_RUNTIME "Link the C++ runtime statically where supported" OFF)
+option(WEAKLINK_STATIC_RUNTIME "Link libstdc++/libgcc statically (portable Linux builds)" OFF)
+
+# What `--version` reports. Release builds pass the tag; everything else is 0.0.0,
+# matching the reference implementation, which keeps 0.0.0 in git and sets the
+# real version from the tag at publish time.
+set(WEAKLINK_VERSION "${PROJECT_VERSION}" CACHE STRING "Version string reported by the binaries")
+
+# Static libstdc++/libgcc let one Linux binary run across distributions without
+# matching the build machine's GCC runtime. Not meaningful on macOS, where the
+# C++ runtime ships with the OS.
+add_library(wl_runtime INTERFACE)
+if(WEAKLINK_STATIC_RUNTIME)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE AND NOT MSVC)
+    target_link_options(wl_runtime INTERFACE -static-libstdc++ -static-libgcc)
+  else()
+    message(STATUS "WEAKLINK_STATIC_RUNTIME ignored: not supported for this compiler/platform")
+  endif()
+endif()
 
 # Binaries land in a single gitignored directory so CI can collect them
 # without knowing the generator's layout.

@@ -9,7 +9,10 @@ on:
 jobs:
   # macOS is built natively. Apple's SDK cannot run in a Linux container, so
   # there is no Docker image for it -- the runner itself is the build host.
+  # Both architectures get a real run rather than a cross-build so the tests
+  # actually execute on the hardware they target.
   macos:
+    name: macOS ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,35 +41,85 @@ jobs:
           name: weaklink-modem-macos-${{ matrix.arch }}
           path: binaries/macos-${{ matrix.arch }}/
 
-  # Linux builds in the containers under docker/. The same compose services
-  # back `make build-linux` locally, so CI and a developer machine run
-  # identical builds.
+  # One binary per CPU architecture, built in the Ubuntu 22.04 container under
+  # docker/. Each architecture gets a native runner, so nothing is emulated.
   linux:
+    name: Linux ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: linux-amd64
-            platform: linux/amd64
+            arch: x86_64
+            runner: ubuntu-24.04
           - service: linux-arm64
-            platform: linux/arm64
-    runs-on: ubuntu-latest
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-
-      # arm64 images need emulation on an x86_64 runner.
-      - uses: docker/setup-qemu-action@v3
-        if: matrix.platform == 'linux/arm64'
-
-      - uses: docker/setup-buildx-action@v3
 
       - name: Build and test in container
         run: docker compose run --rm --build ${{ matrix.service }}
 
+      - name: Confirm the binary needs nothing but libc
+        run: |
+          # ALSA is dlopen'd rather than linked, so the binary starts on any
+          # distribution and only needs the library when live audio is opened.
+          ldd binaries/${{ matrix.service }}/weaklink-modem
+          ! ldd binaries/${{ matrix.service }}/weaklink-modem | grep -q libasound
+
       - uses: actions/upload-artifact@v4
         with:
-          name: weaklink-modem-${{ matrix.service }}
-          path: binaries/${{ matrix.service }}/
+          name: linux-${{ matrix.arch }}
+          path: binaries/${{ matrix.service }}/weaklink-modem
+
+  # The portability claim is "one binary per architecture, no packages to
+  # install". This is where that gets proven: the exact artifact the Linux job
+  # produced is dropped into stock distribution images, with nothing installed,
+  # and has to complete a tx -> WAV -> rx round-trip.
+  distros:
+    name: WAV loop · ${{ matrix.name }}
+    needs: linux
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "ubuntu 22.04",          image: "ubuntu:22.04",                     runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "ubuntu 24.04",          image: "ubuntu:24.04",                     runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "debian bookworm",       image: "debian:bookworm-slim",             runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "debian trixie",         image: "debian:trixie-slim",               runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "arch",                  image: "archlinux:latest",                 runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "ubuntu 24.04 arm64",    image: "ubuntu:24.04",                     runner: ubuntu-24.04-arm, arch: arm64 }
+          - { name: "debian bookworm arm64", image: "debian:bookworm-slim",             runner: ubuntu-24.04-arm, arch: arm64 }
+          - { name: "raspberry pi os",       image: "dtcooper/raspberrypi-os:bookworm", runner: ubuntu-24.04-arm, arch: arm64 }
+          - { name: "arch arm64",            image: "menci/archlinuxarm:base",          runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist
+
+      - name: Round-trip bytes through a WAV on a stock image
+        run: |
+          chmod +x dist/weaklink-modem
+          docker run --rm -v "$PWD/dist:/d:ro" ${{ matrix.image }} sh -ec '
+            /d/weaklink-modem --version
+
+            # Default mode, then a narrow one and a wide one, so the check
+            # covers more than a single code path.
+            for mode in "--modem-baud 300 --modem-num-tones 4" \
+                        "--modem-baud 45 --modem-num-tones 2" \
+                        "--modem-baud 1200 --modem-num-tones 8"; do
+              printf "wav loop across distros" \
+                | /d/weaklink-modem tx $mode --modem-wav /tmp/s.wav --modem-log-file /tmp/l
+              got=$(/d/weaklink-modem rx $mode --modem-wav /tmp/s.wav --modem-log-file /tmp/l)
+              test "$got" = "wav loop across distros" || {
+                echo "FAILED [$mode]: got \"$got\""; exit 1; }
+              echo "ok: $mode"
+            done
+          '
 
   # Cross-validation against the Python implementation. It needs both repos, so
   # it only runs when the reference is checked out alongside this one.

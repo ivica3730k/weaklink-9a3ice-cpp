@@ -22,6 +22,12 @@ if(WEAKLINK_LIVE_AUDIO)
   set(PA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF)
 
+  # Load ALSA through dlopen rather than linking it. One Linux binary then
+  # starts anywhere -- a container without libasound included -- and only needs
+  # the library when live audio is actually opened. WAV and stdin/stdout modes
+  # never touch it.
+  set(PA_ALSA_DYNAMIC ON CACHE BOOL "" FORCE)
+
   # PortAudio 19.7 still declares cmake_minimum_required(VERSION 3.0), which
   # CMake 4 refuses outright. Granting it the 3.5 floor is the documented
   # escape hatch and affects only the fetched subproject.

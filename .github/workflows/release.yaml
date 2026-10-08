@@ -1,0 +1,138 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+# One download per platform. macOS ships a universal binary carrying both
+# slices; Linux needs one file per CPU architecture because that is machine
+# code, but neither is tied to a distribution -- ALSA is dlopen'd and
+# libstdc++ is static, so the only requirement is glibc.
+
+jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          # On a release the ref is the tag; a manual run has no tag to read.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build tools
+        run: brew install cmake ninja
+
+      - name: Build
+        run: |
+          make build-mac-universal \
+            CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DWEAKLINK_VERSION=${{ steps.version.outputs.version }}"
+
+      - name: Verify both slices are present and the binary round-trips
+        run: |
+          BIN=binaries/macos-universal/weaklink-modem
+          lipo -archs "$BIN" | tee /tmp/archs
+          grep -q arm64 /tmp/archs && grep -q x86_64 /tmp/archs
+          "$BIN" --version
+          printf 'release smoke test' | "$BIN" tx --modem-wav /tmp/smoke.wav
+          test "$("$BIN" rx --modem-wav /tmp/smoke.wav)" = "release smoke test"
+
+      - name: Name the assets
+        run: |
+          cd binaries/macos-universal
+          V="${{ steps.version.outputs.version }}"
+          cp weaklink-modem "weaklink-modem-macos-$V"
+          cp weaklink-modem "weaklink-modem-macos-latest"
+          cp weaklink-modem-benchmark "weaklink-modem-benchmark-macos-$V"
+
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: |
+            binaries/macos-universal/weaklink-modem-macos-*
+            binaries/macos-universal/weaklink-modem-benchmark-macos-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaklink-modem-macos-universal
+          path: binaries/macos-universal/weaklink-modem*-macos-*
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Built against Ubuntu 22.04's glibc so the binary stays forward
+      # compatible with newer distributions, with libstdc++ linked statically
+      # so it does not depend on the build machine's GCC runtime.
+      - name: Build in the Ubuntu 22.04 baseline
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            -e VERSION="${{ steps.version.outputs.version }}" \
+            ubuntu:22.04 bash -ex -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -q
+              apt-get install -y --no-install-recommends \
+                build-essential cmake ninja-build git ca-certificates \
+                libasound2-dev libpulse-dev pkg-config
+              cmake -S . -B build/release -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DWEAKLINK_BUILD_TESTS=ON \
+                -DWEAKLINK_STATIC_RUNTIME=ON \
+                -DWEAKLINK_VERSION="$VERSION" \
+                -DWEAKLINK_BIN_DIR=/work/dist
+              cmake --build build/release -j "$(nproc)"
+              ctest --test-dir build/release --output-on-failure
+              chmod -R 755 dist/
+            '
+
+      - name: Confirm the binary needs nothing but libc
+        run: |
+          ldd dist/weaklink-modem
+          ! ldd dist/weaklink-modem | grep -q libasound
+
+      - name: Name the assets
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          cp dist/weaklink-modem "dist/weaklink-modem-linux-${{ matrix.arch }}-$V"
+          cp dist/weaklink-modem "dist/weaklink-modem-linux-${{ matrix.arch }}-latest"
+          cp dist/weaklink-modem-benchmark "dist/weaklink-modem-benchmark-linux-${{ matrix.arch }}-$V"
+
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: dist/weaklink-modem*-linux-${{ matrix.arch }}-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaklink-modem-linux-${{ matrix.arch }}
+          path: dist/weaklink-modem*-linux-${{ matrix.arch }}-*

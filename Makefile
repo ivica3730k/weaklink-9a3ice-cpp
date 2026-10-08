@@ -13,13 +13,14 @@ CMAKE_FLAGS  ?= -DCMAKE_BUILD_TYPE=Release
 JOBS         ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 COMPOSE      ?= docker compose
 
-.PHONY: help build-mac build-mac-arm build-mac-host build-linux build-linux-arm \
+.PHONY: help build-mac build-mac-arm build-mac-universal build-mac-host build-linux build-linux-arm \
         build-windows test test-mac interop clean distclean
 
 help:
 	@echo "Targets:"
 	@echo "  build-mac        macOS x86_64 (Intel)"
 	@echo "  build-mac-arm    macOS arm64 (Apple silicon)"
+	@echo "  build-mac-universal  macOS arm64 + x86_64 in one file (what releases ship)"
 	@echo "  build-mac-host   macOS for whatever the build machine is"
 	@echo "  build-linux      Linux x86_64 via docker/linux-amd64"
 	@echo "  build-linux-arm  Linux arm64  via docker/linux-arm64"
@@ -47,6 +48,14 @@ build-mac-arm:
 	      -DCMAKE_OSX_ARCHITECTURES=arm64 \
 	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-arm64
 	cmake --build $(BUILD_DIR)/mac-arm64 -j $(JOBS)
+
+# One file carrying both slices -- what releases ship, so macOS users have a
+# single download regardless of their hardware.
+build-mac-universal:
+	cmake -S . -B $(BUILD_DIR)/mac-universal -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
+	      -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-universal
+	cmake --build $(BUILD_DIR)/mac-universal -j $(JOBS)
 
 # Whatever the build machine is. Handy while iterating; CI should name an
 # architecture instead so the artifact is not a surprise.

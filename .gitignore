@@ -1,6 +1,10 @@
 binaries/
 build/
 build-*/
+# Release and portability-check outputs, local and in-container.
+dist/
+distcheck/
+distdyn/
 .cache/
 .DS_Store
 compile_commands.json

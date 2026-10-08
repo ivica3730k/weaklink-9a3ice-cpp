@@ -25,6 +25,7 @@ Binaries land in `binaries/<platform>/`, which is gitignored.
 | --- | --- |
 | `make build-mac` | macOS x86_64 (Intel) |
 | `make build-mac-arm` | macOS arm64 (Apple silicon) |
+| `make build-mac-universal` | macOS arm64 + x86_64 in one file (what releases ship) |
 | `make build-mac-host` | macOS for whatever the build machine is |
 | `make build-linux` | Linux x86_64 in `docker/linux-amd64` |
 | `make build-linux-arm` | Linux arm64 in `docker/linux-arm64` |
@@ -36,6 +37,30 @@ macOS has no Docker image, and cannot have one: Apple's SDK is not licensed or
 technically able to run in a Linux container. Build it natively on a `macos-*`
 CI runner using the same `make` target you would run locally. Linux and Windows
 build in containers, so a CI job is just `docker compose run --rm <service>`.
+
+### One binary per platform
+
+There are no per-distribution builds. macOS ships a single universal binary
+carrying both slices; Linux needs one file per CPU architecture because that is
+machine code, but neither file is tied to a distribution:
+
+```
+$ ldd weaklink-modem
+        linux-vdso.so.1
+        libm.so.6 => /lib/aarch64-linux-gnu/libm.so.6
+        libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6
+```
+
+`libstdc++` is linked statically, and PortAudio is built with `PA_ALSA_DYNAMIC`
+so ALSA is `dlopen`'d rather than linked -- the binary starts on a bare image
+and only needs the library when live audio is actually opened. WAV and
+stdin/stdout modes never touch it. Building against Ubuntu 22.04's glibc keeps
+it forward compatible with newer distributions.
+
+CI proves this on every push: the exact artifact is dropped into stock Ubuntu
+22.04/24.04, Debian bookworm/trixie, Arch and Raspberry Pi OS images, with
+nothing installed, and has to complete a tx → WAV → rx round-trip in three
+different modes.
 
 Windows is scaffolded but unimplemented. The modem core cross-compiles under
 mingw-w64, but the live-audio layer needs a Windows backend and the
@@ -145,6 +170,24 @@ python3 tools/interop_check.py --cpp-bin ./binaries/test/weaklink-modem
 All 14 feasible modes interoperate in both directions. Waveforms agree to
 within 1.5e-11 per sample (the residual is last-ULP `sin` differences between
 NumPy's vectorised math and libm); OOK modes are bit-identical.
+
+### SNR cliffs
+
+Decoding the same bytes is necessary but not sufficient -- the port could be
+wire compatible and still be a dB or two worse in noise if the soft-decision
+chain lost precision. `tools/compare_benchmark.py` diffs the two
+implementations' measured cliffs:
+
+```bash
+weaklink-modem-benchmark --bauds 300 --trials 5 --dry-run > /tmp/cpp.md
+python3 tools/compare_benchmark.py /tmp/cpp.md ../weaklink-9a3ice/results.md
+```
+
+Across all 60 configurations at 300 baud, the port's cliff matches the
+reference's to the dB. Note that the reference's checked-in `results.md`
+predates some of its own code changes: the two rows that appear to differ are
+both OOK, and both match when the reference is re-measured rather than read
+from the table.
 
 Three modes behave differently from a naive "did the payload survive" check,
 and in every case the difference is on the reference side:

@@ -22,7 +22,7 @@ add_executable(weaklink-tests
   test_waveform.cpp)
 
 target_include_directories(weaklink-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(weaklink-tests PRIVATE wl_api wl_catch2 wl_warnings)
+target_link_libraries(weaklink-tests PRIVATE wl_api wl_catch2 wl_runtime wl_warnings)
 
 # The slow tag covers the SNR sweeps and multi-kilobyte round-trips. They are
 # part of the suite but split out so `ctest -L fast` stays usable while

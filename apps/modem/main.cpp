@@ -16,7 +16,11 @@
 
 namespace {
 
-constexpr const char* kVersion = "0.0.0";
+#ifndef WEAKLINK_VERSION
+#define WEAKLINK_VERSION "0.0.0"
+#endif
+
+constexpr const char* kVersion = WEAKLINK_VERSION;
 
 std::atomic<bool> g_interrupted{false};
 
