@@ -197,6 +197,37 @@ and in every case the difference is on the reference side:
 | 2-FSK at 45 and 300 baud | Both implementations drop the final byte, identically. A reference limitation the port reproduces exactly. |
 | OOK at 45 and 1200 baud | The port recovers the payload; the reference emits blocks out of order. The port is strictly better here. |
 
+### CPU cost
+
+`tools/cpu_benchmark.py` encodes the same payload with both implementations at
+every baud, has both decode the *same* WAV, and reports the CPU time (user +
+system, taken from `wait4`, minimum of N runs) each process was charged.
+
+```bash
+python3 tools/cpu_benchmark.py --cpp-bin ./binaries/macos-arm64/weaklink-modem
+```
+
+210-byte payload, 4 tones, Apple M3 Pro, Release build vs CPython 3.14 + NumPy:
+
+| Baud | Audio | Encode CPU (C++ / Python) | Decode CPU (C++ / Python) | Decode load at real time (C++ / Python) | Speedup |
+| --- | --- | --- | --- | --- | --- |
+| 45 | 164.1 s | 0.07 s / 0.20 s | 0.44 s / 2.86 s | 0.27% / 1.7% of one core | 7x |
+| 300 | 12.4 s | 0.01 s / 0.15 s | 0.05 s / 1.33 s | 0.38% / 10.7% of one core | 28x |
+| 1200 | 3.2 s | 0.01 s / 0.15 s | 0.02 s / 1.18 s | 0.66% / 36.6% of one core | 56x |
+
+Decoding is the number that matters: the receiver has to keep up with audio as
+it arrives. At 1200 baud the reference spends roughly 37% of a core to stay
+real time; the port spends under 1%, which is the difference between "needs a
+laptop" and "runs on a Pi alongside everything else".
+
+The 7x at 45 baud is the narrowest gap because that mode's cost is dominated by
+long vectorised passes over a 164-second buffer, which is where NumPy is at its
+best. The gap widens as the per-symbol Python overhead starts to dominate.
+
+Python process startup costs 0.13 s of CPU before any work happens, so the
+short-audio rows carry a fixed tax the port does not pay; excluding it the 1200
+baud decode is still 52x.
+
 ## Differences from the Python implementation
 
 Deliberate, and limited to these:
