@@ -15,7 +15,7 @@ primary constraint: anything that changes the bits on the wire breaks it.
 ## Common commands
 
 ```bash
-make build-mac                            # native build -> binaries/macos-<arch>/
+make build-mac-arm                        # -> binaries/macos-arm64/ (build-mac is x86_64)
 make test                                 # configure, build, run the suite
 ./binaries/test/weaklink-tests "~[slow]"  # quick tests only
 ./binaries/test/weaklink-tests "[rng]"    # one tag

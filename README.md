@@ -12,7 +12,7 @@ encoders produce the same waveform to within floating-point rounding.
 ## Quick start
 
 ```bash
-make build-mac          # or build-mac-arm / build-linux / build-linux-arm
+make build-mac-arm      # or build-mac / build-linux / build-linux-arm
 echo "hello" | ./binaries/macos-arm64/weaklink-modem tx --modem-wav /tmp/out.wav
 ./binaries/macos-arm64/weaklink-modem rx --modem-wav /tmp/out.wav
 ```
@@ -23,9 +23,9 @@ Binaries land in `binaries/<platform>/`, which is gitignored.
 
 | Target | What it does |
 | --- | --- |
-| `make build-mac` | native macOS build for the host architecture |
+| `make build-mac` | macOS x86_64 (Intel) |
 | `make build-mac-arm` | macOS arm64 (Apple silicon) |
-| `make build-mac-x64` | macOS x86_64 |
+| `make build-mac-host` | macOS for whatever the build machine is |
 | `make build-linux` | Linux x86_64 in `docker/linux-amd64` |
 | `make build-linux-arm` | Linux arm64 in `docker/linux-arm64` |
 | `make build-windows` | not implemented yet (see below) |

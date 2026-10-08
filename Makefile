@@ -13,14 +13,14 @@ CMAKE_FLAGS  ?= -DCMAKE_BUILD_TYPE=Release
 JOBS         ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 COMPOSE      ?= docker compose
 
-.PHONY: help build-mac build-mac-arm build-mac-x64 build-linux build-linux-arm \
+.PHONY: help build-mac build-mac-arm build-mac-host build-linux build-linux-arm \
         build-windows test test-mac interop clean distclean
 
 help:
 	@echo "Targets:"
-	@echo "  build-mac        native macOS build for the host architecture"
+	@echo "  build-mac        macOS x86_64 (Intel)"
 	@echo "  build-mac-arm    macOS arm64 (Apple silicon)"
-	@echo "  build-mac-x64    macOS x86_64 (Intel / Rosetta cross)"
+	@echo "  build-mac-host   macOS for whatever the build machine is"
 	@echo "  build-linux      Linux x86_64 via docker/linux-amd64"
 	@echo "  build-linux-arm  Linux arm64  via docker/linux-arm64"
 	@echo "  build-windows    Windows x86_64 (not implemented yet)"
@@ -31,10 +31,16 @@ help:
 
 # ---- macOS (native; Docker cannot host the Apple SDK) ----------------------
 
+# Both architectures are named explicitly so a build is reproducible wherever
+# it runs. Apple's SDK ships both slices, so either one cross-builds from
+# either machine -- only running the result needs the matching hardware (or
+# Rosetta).
+
 build-mac:
-	cmake -S . -B $(BUILD_DIR)/mac -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
-	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-$(shell uname -m)
-	cmake --build $(BUILD_DIR)/mac -j $(JOBS)
+	cmake -S . -B $(BUILD_DIR)/mac-x86_64 -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
+	      -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-x86_64
+	cmake --build $(BUILD_DIR)/mac-x86_64 -j $(JOBS)
 
 build-mac-arm:
 	cmake -S . -B $(BUILD_DIR)/mac-arm64 -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
@@ -42,11 +48,12 @@ build-mac-arm:
 	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-arm64
 	cmake --build $(BUILD_DIR)/mac-arm64 -j $(JOBS)
 
-build-mac-x64:
-	cmake -S . -B $(BUILD_DIR)/mac-x86_64 -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
-	      -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-x86_64
-	cmake --build $(BUILD_DIR)/mac-x86_64 -j $(JOBS)
+# Whatever the build machine is. Handy while iterating; CI should name an
+# architecture instead so the artifact is not a surprise.
+build-mac-host:
+	cmake -S . -B $(BUILD_DIR)/mac -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF \
+	      -DWEAKLINK_BIN_DIR=$(CURDIR)/$(BIN_DIR)/macos-$(shell uname -m)
+	cmake --build $(BUILD_DIR)/mac -j $(JOBS)
 
 # ---- Linux (containerised) -------------------------------------------------
 
