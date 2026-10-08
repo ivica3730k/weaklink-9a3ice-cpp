@@ -1,0 +1,9 @@
+binaries/
+build/
+build-*/
+.cache/
+.DS_Store
+compile_commands.json
+*.wav
+log.txt
+.benchmark-cache/

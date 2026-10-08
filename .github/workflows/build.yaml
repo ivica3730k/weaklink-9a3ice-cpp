@@ -1,0 +1,114 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # macOS is built natively. Apple's SDK cannot run in a Linux container, so
+  # there is no Docker image for it -- the runner itself is the build host.
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            target: build-mac-arm
+          - runner: macos-13
+            arch: x86_64
+            target: build-mac-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install cmake ninja
+
+      - name: Build
+        run: make ${{ matrix.target }}
+
+      - name: Test
+        run: make test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaklink-modem-macos-${{ matrix.arch }}
+          path: binaries/macos-${{ matrix.arch }}/
+
+  # Linux builds in the containers under docker/. The same compose services
+  # back `make build-linux` locally, so CI and a developer machine run
+  # identical builds.
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: linux-amd64
+            platform: linux/amd64
+          - service: linux-arm64
+            platform: linux/arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # arm64 images need emulation on an x86_64 runner.
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.platform == 'linux/arm64'
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and test in container
+        run: docker compose run --rm --build ${{ matrix.service }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaklink-modem-${{ matrix.service }}
+          path: binaries/${{ matrix.service }}/
+
+  # Cross-validation against the Python implementation. It needs both repos, so
+  # it only runs when the reference is checked out alongside this one.
+  interop:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: weaklink-9a3ice-cpp
+
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        id: reference
+        with:
+          repository: ivica3730k/weaklink-9a3ice
+          path: weaklink-9a3ice
+
+      - name: Install build tools
+        if: steps.reference.outcome == 'success'
+        run: brew install cmake ninja
+
+      - uses: actions/setup-python@v5
+        if: steps.reference.outcome == 'success'
+        with:
+          python-version: '3.12'
+
+      - name: Install the reference implementation
+        if: steps.reference.outcome == 'success'
+        working-directory: weaklink-9a3ice
+        run: |
+          pipx install poetry
+          poetry install
+
+      - name: Build the port
+        if: steps.reference.outcome == 'success'
+        working-directory: weaklink-9a3ice-cpp
+        run: make test
+
+      - name: Cross-validate both directions
+        if: steps.reference.outcome == 'success'
+        working-directory: weaklink-9a3ice-cpp
+        run: |
+          python3 tools/interop_check.py \
+            --cpp-bin "$PWD/binaries/test/weaklink-modem" \
+            --python-repo "$GITHUB_WORKSPACE/weaklink-9a3ice"
