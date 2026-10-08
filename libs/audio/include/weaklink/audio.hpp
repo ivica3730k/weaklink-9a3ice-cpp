@@ -45,9 +45,34 @@ void set_unity_gain(const AudioTarget& target, DeviceKind kind);
 /// Pulls the next chunk of audio to play. Return false when the stream ends.
 using SampleSource = std::function<bool(Samples&)>;
 
-/// Play float32 mono audio as it arrives, so a long transmission never has to
-/// be buffered in full. Pulse targets pipe into ``paplay --raw``; everything
-/// else goes through a PortAudio output stream.
+/// An open output device that chunks are written into as they are produced.
+///
+/// The encoder is push-shaped -- it hands finished slots to a sink -- so the
+/// playback side has to be push-shaped too, or a long transmission ends up
+/// buffered in full just to bridge the two.
+///
+/// Pulse targets pipe into ``paplay --raw``; everything else goes through a
+/// PortAudio output stream.
+class PlaybackStream {
+ public:
+  PlaybackStream(double sample_rate, const std::string& device);
+  ~PlaybackStream();
+
+  PlaybackStream(const PlaybackStream&) = delete;
+  PlaybackStream& operator=(const PlaybackStream&) = delete;
+
+  void write(const float* samples, std::size_t count);
+  void write(const Samples& chunk) { write(chunk.data(), chunk.size()); }
+
+  /// Drain and close. Called by the destructor if the caller does not.
+  void close();
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+/// Play float32 mono audio as it arrives, pulling chunks from ``source``.
 void play_stream(const SampleSource& source, double sample_rate, const std::string& device);
 
 /// Blocking one-shot play.

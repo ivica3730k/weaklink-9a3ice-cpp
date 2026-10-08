@@ -114,22 +114,13 @@ Samples tx(const codec::ByteSource& source, const ModemOptions& options, int tx_
   }
 
   if (to_device) {
-    // Audio is produced lazily and handed to the sink as it is generated, so a
-    // long transmission never has to be buffered whole. The encoder runs on
-    // this thread between device writes.
-    std::vector<Samples> queue;
-    stream_with_pilots(source, config, [&](const Samples& part) { queue.push_back(part); });
-    std::size_t next = 0;
+    // Key the radio before the device opens so the lead-in guard covers the
+    // first sample, then hand each slot to the device as the encoder finishes
+    // it. A long transmission is never buffered whole.
     ptt::HamlibPtt keyed(target.ptt);
-    audio::play_stream(
-        [&](Samples& chunk) {
-          if (next >= queue.size()) {
-            return false;
-          }
-          chunk = std::move(queue[next++]);
-          return true;
-        },
-        config.waveform().sample_rate(), target.audio_output);
+    audio::PlaybackStream output(config.waveform().sample_rate(), target.audio_output);
+    stream_with_pilots(source, config, [&](const Samples& part) { output.write(part); });
+    output.close();
     return {};
   }
 
