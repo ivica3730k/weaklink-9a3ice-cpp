@@ -98,6 +98,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/work" -w /work \
             -e VERSION="${{ steps.version.outputs.version }}" \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             ubuntu:22.04 bash -ex -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -q
@@ -112,7 +113,11 @@ jobs:
                 -DWEAKLINK_BIN_DIR=/work/dist
               cmake --build build/release -j "$(nproc)"
               ctest --test-dir build/release --output-on-failure
-              chmod -R 755 dist/
+              # The container runs as root, so dist/ and everything in it lands
+              # root-owned on the mounted host tree. Later steps run as the
+              # runner user and copy the assets into this same directory, which
+              # only works if it owns it.
+              chown -R "$HOST_UID:$HOST_GID" dist/
             '
 
       - name: Confirm the binary needs nothing but libc
