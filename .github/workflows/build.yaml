@@ -25,7 +25,7 @@ jobs:
             target: build-mac
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build tools
         run: brew install cmake ninja
@@ -36,7 +36,7 @@ jobs:
       - name: Test
         run: make test
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: weaklink-modem-macos-${{ matrix.arch }}
           path: binaries/macos-${{ matrix.arch }}/
@@ -57,7 +57,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build and test in container
         run: docker compose run --rm --build ${{ matrix.service }}
@@ -69,7 +69,7 @@ jobs:
           ldd binaries/${{ matrix.service }}/weaklink-modem
           ! ldd binaries/${{ matrix.service }}/weaklink-modem | grep -q libasound
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: binaries/${{ matrix.service }}/weaklink-modem
@@ -96,7 +96,7 @@ jobs:
           - { name: "raspberry pi os",       image: "dtcooper/raspberrypi-os:bookworm", runner: ubuntu-24.04-arm, arch: arm64 }
           - { name: "arch arm64",            image: "menci/archlinuxarm:base",          runner: ubuntu-24.04-arm, arch: arm64 }
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: linux-${{ matrix.arch }}
           path: dist
@@ -126,11 +126,11 @@ jobs:
   interop:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: weaklink-9a3ice-cpp
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         continue-on-error: true
         id: reference
         with:
@@ -141,7 +141,7 @@ jobs:
         if: steps.reference.outcome == 'success'
         run: brew install cmake ninja
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.reference.outcome == 'success'
         with:
           python-version: '3.12'

@@ -18,7 +18,7 @@ jobs:
     name: macOS universal
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version
         id: version
@@ -55,14 +55,14 @@ jobs:
           cp weaklink-modem "weaklink-modem-macos-latest"
           cp weaklink-modem-benchmark "weaklink-modem-benchmark-macos-$V"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: github.event_name == 'release'
         with:
           files: |
             binaries/macos-universal/weaklink-modem-macos-*
             binaries/macos-universal/weaklink-modem-benchmark-macos-*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: weaklink-modem-macos-universal
           path: binaries/macos-universal/weaklink-modem*-macos-*
@@ -79,7 +79,7 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version
         id: version
@@ -132,12 +132,12 @@ jobs:
           cp dist/weaklink-modem "dist/weaklink-modem-linux-${{ matrix.arch }}-latest"
           cp dist/weaklink-modem-benchmark "dist/weaklink-modem-benchmark-linux-${{ matrix.arch }}-$V"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: github.event_name == 'release'
         with:
           files: dist/weaklink-modem*-linux-${{ matrix.arch }}-*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: weaklink-modem-linux-${{ matrix.arch }}
           path: dist/weaklink-modem*-linux-${{ matrix.arch }}-*
