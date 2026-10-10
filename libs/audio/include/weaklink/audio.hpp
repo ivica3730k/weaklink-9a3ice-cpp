@@ -67,6 +67,11 @@ class PlaybackStream {
   /// Drain and close. Called by the destructor if the caller does not.
   void close();
 
+  /// Stop now and discard whatever the device has already queued. ``close``
+  /// would play that tail out, which is the wrong answer for an interrupted
+  /// transmission.
+  void abort();
+
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

@@ -157,6 +157,29 @@ void PlaybackStream::close() {
 #endif
 }
 
+void PlaybackStream::abort() {
+  if (!impl_ || impl_->closed) {
+    return;
+  }
+  impl_->closed = true;
+
+  if (impl_->pipe) {
+    // paplay buffers ahead of the speaker, so asking it to exit cleanly would
+    // still let the tail play; kill it instead.
+    impl_->pipe->kill();
+    impl_->pipe.reset();
+    return;
+  }
+#if WEAKLINK_HAVE_PORTAUDIO
+  if (impl_->stream != nullptr) {
+    Pa_AbortStream(impl_->stream);
+    Pa_CloseStream(impl_->stream);
+    impl_->stream = nullptr;
+  }
+  impl_->session.reset();
+#endif
+}
+
 void play_stream(const SampleSource& source, double sample_rate, const std::string& device) {
   PlaybackStream stream(sample_rate, device);
   Samples chunk;

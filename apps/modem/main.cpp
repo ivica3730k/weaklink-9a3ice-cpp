@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <signal.h>
+#endif
+
 #include "CLI11.hpp"
 #include "weaklink/api.hpp"
 #include "weaklink/constants.hpp"
@@ -25,6 +29,26 @@ constexpr const char* kVersion = WEAKLINK_VERSION;
 std::atomic<bool> g_interrupted{false};
 
 void handle_interrupt(int) { g_interrupted.store(true, std::memory_order_relaxed); }
+
+bool interrupted() { return g_interrupted.load(std::memory_order_relaxed); }
+
+/// ``std::signal`` on BSD/macOS installs a restarting handler, so a Ctrl-C
+/// while the modem is blocked reading stdin is noticed only once the pipe
+/// happens to deliver something -- which, for ``tail -f | weaklink-modem tx``,
+/// is never. Install via ``sigaction`` without ``SA_RESTART`` so the read
+/// comes back with EINTR and the stop flag gets looked at.
+void install_interrupt_handler() {
+#if defined(_WIN32)
+  std::signal(SIGINT, handle_interrupt);
+#else
+  struct sigaction action{};
+  action.sa_handler = handle_interrupt;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  sigaction(SIGINT, &action, nullptr);
+  sigaction(SIGTERM, &action, nullptr);
+#endif
+}
 
 /// Every ``--modem-*`` flag, shared by both subcommands.
 ///
@@ -149,7 +173,15 @@ bool read_stdin_chunk(weaklink::ByteVector& chunk) {
   chunk.resize(kChunkBytes);
   const std::size_t read = std::fread(chunk.data(), 1, kChunkBytes, stdin);
   chunk.resize(read);
-  return read > 0;
+  if (read == 0) {
+    return false;
+  }
+  // An EINTR'd read leaves the error flag set; clearing it keeps a later read
+  // from failing outright on a stream that is still perfectly good.
+  if (std::ferror(stdin) != 0) {
+    std::clearerr(stdin);
+  }
+  return !interrupted();
 }
 
 void write_stdout(const weaklink::ByteVector& bytes) {
@@ -173,8 +205,7 @@ int run_tx(const ModemArgs& args, bool tune, int tx_volume, const std::string& p
     target.audio_output = args.audio_output;
     target.to_audio_device = true;
   }
-  weaklink::api::tx(read_stdin_chunk, args.to_options(), tx_volume, target,
-                    [] { return g_interrupted.load(std::memory_order_relaxed); });
+  weaklink::api::tx(read_stdin_chunk, args.to_options(), tx_volume, target, interrupted);
   return 0;
 }
 
@@ -193,8 +224,7 @@ int run_rx(const ModemArgs& args) {
     }
     source.from_audio_device = true;
   }
-  weaklink::api::rx(source, args.to_options(), write_stdout,
-                    [] { return g_interrupted.load(std::memory_order_relaxed); });
+  weaklink::api::rx(source, args.to_options(), write_stdout, interrupted);
   return 0;
 }
 
@@ -251,10 +281,7 @@ int main(int argc, char** argv) {
   weaklink::Logger::configure_file(
       args.log_file, args.debug ? weaklink::LogLevel::kDebug : weaklink::LogLevel::kInfo);
 
-  std::signal(SIGINT, handle_interrupt);
-#if !defined(_WIN32)
-  std::signal(SIGTERM, handle_interrupt);
-#endif
+  install_interrupt_handler();
 
   weaklink::Logger cli_log("weaklink.cli");
   cli_log.debug("weaklink-modem ", is_tx ? "tx" : "rx", " starting");

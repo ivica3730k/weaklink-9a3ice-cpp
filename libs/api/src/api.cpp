@@ -23,14 +23,32 @@ std::string format_baud(double baud) {
 /// Leading pilot, encoded blocks, trailing pilot -- what the CLI puts on the
 /// wire. The leading pilot is sized without knowing the signal length (the
 /// source is a stream), so only the two fixed floors apply.
+///
+/// An interrupt ends the transmission where it stands: input stops being
+/// pulled, slots already encoded are dropped instead of played out, and the
+/// trailing pilot is skipped. Waiting for either would mean a Ctrl-C takes as
+/// long as the rest of the message.
 void stream_with_pilots(const codec::ByteSource& source, const ModemConfig& config,
-                        const codec::SampleSink& sink) {
+                        const codec::SampleSink& sink,
+                        const std::function<bool()>& should_stop) {
+  const auto stopped = [&] { return should_stop && should_stop(); };
   const double pilot_seconds =
       std::max(kLiveTxPilotMinSeconds,
                static_cast<double>(kLiveTxPilotMinSymbols) / config.waveform().baud());
   const Samples pilot = streaming::pilot_signal(config, pilot_seconds);
+  if (stopped()) {
+    return;
+  }
   sink(pilot);
-  codec::encode_stream(source, config, sink);
+  codec::encode_stream([&](ByteVector& chunk) { return stopped() ? false : source(chunk); },
+                       config, [&](const Samples& part) {
+                         if (!stopped()) {
+                           sink(part);
+                         }
+                       });
+  if (stopped()) {
+    return;
+  }
   sink(pilot);
 }
 
@@ -108,7 +126,8 @@ Samples tx(const codec::ByteSource& source, const ModemOptions& options, int tx_
   if (to_wav) {
     audio::WavWriter writer(target.wav_path,
                             static_cast<int>(std::lround(config.waveform().sample_rate())));
-    stream_with_pilots(source, config, [&](const Samples& part) { writer.write(part); });
+    stream_with_pilots(source, config, [&](const Samples& part) { writer.write(part); },
+                       should_stop);
     writer.close();
     return {};
   }
@@ -119,8 +138,13 @@ Samples tx(const codec::ByteSource& source, const ModemOptions& options, int tx_
     // it. A long transmission is never buffered whole.
     ptt::HamlibPtt keyed(target.ptt);
     audio::PlaybackStream output(config.waveform().sample_rate(), target.audio_output);
-    stream_with_pilots(source, config, [&](const Samples& part) { output.write(part); });
-    output.close();
+    stream_with_pilots(source, config, [&](const Samples& part) { output.write(part); },
+                       should_stop);
+    if (should_stop && should_stop()) {
+      output.abort();
+    } else {
+      output.close();
+    }
     return {};
   }
 
