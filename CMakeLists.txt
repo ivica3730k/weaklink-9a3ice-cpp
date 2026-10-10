@@ -33,7 +33,7 @@ endif()
 
 # Binaries land in a single gitignored directory so CI can collect them
 # without knowing the generator's layout.
-set(WEAKLINK_BIN_DIR "${CMAKE_SOURCE_DIR}/binaries" CACHE PATH "Where built binaries are placed")
+set(WEAKLINK_BIN_DIR "${PROJECT_SOURCE_DIR}/binaries" CACHE PATH "Where built binaries are placed")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${WEAKLINK_BIN_DIR}")
 foreach(cfg DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${cfg} "${WEAKLINK_BIN_DIR}")

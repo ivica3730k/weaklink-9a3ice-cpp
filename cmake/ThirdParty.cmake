@@ -1,16 +1,20 @@
 # Header-only dependencies are vendored under third_party/ so a clean
 # checkout builds with no network access. PortAudio is the one exception:
 # it needs a real build, so it is fetched (or taken from the system).
+#
+# Paths are anchored to PROJECT_SOURCE_DIR, not CMAKE_SOURCE_DIR: the latter
+# is the top-level project's root, which is somebody else's directory as soon
+# as this project is pulled in with add_subdirectory or FetchContent.
 include(FetchContent)
 
 add_library(wl_pocketfft INTERFACE)
-target_include_directories(wl_pocketfft SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/third_party/pocketfft")
+target_include_directories(wl_pocketfft SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/pocketfft")
 
 add_library(wl_cli11 INTERFACE)
-target_include_directories(wl_cli11 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/third_party/cli11")
+target_include_directories(wl_cli11 SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/cli11")
 
 add_library(wl_catch2 INTERFACE)
-target_include_directories(wl_catch2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/third_party/catch2")
+target_include_directories(wl_catch2 SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/catch2")
 
 if(WEAKLINK_LIVE_AUDIO)
   find_package(Threads REQUIRED)
